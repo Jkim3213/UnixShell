@@ -1,0 +1,45 @@
+# Lab 13
+
+Jacob Kim (811-752-105)
+
+## Instructions
+
+To clean my code (i.e., remove any compiled files), type:
+
+```
+$ make clean
+```
+
+To compile my code, type:
+
+```
+$ make
+```
+
+To run my code (after compiling it), type:
+
+```
+$ ./1730sh
+```
+
+To quit the program:
+
+```
+$ exit
+```
+
+## Reflection
+  This was by far probably the hardest lab. The easy parts were the prompt and the builtin commands. Working forks
+was fairly straight forward as well, but working signals and pipes was a pain. For signals, I first tried to ignore
+in the main and change it back to default disposition in the child process, but then my status for waitpid wasn't
+reading correctly. So then, I changed it so that it would go to default right before waiting and change it back, but
+then the problem was that if I were to SIGINT within a child program it would exit the main process, even I was 
+still in the child. So finally after a couple more tries and iterations, I figured I can just make a handler that
+does nothing working exaclty as the same as Ignore; however, the difference being that because I am not 
+technically ignoring the signal, execvp uses the default dispositions for the child process. The fix may look 
+simple, but it took my far too long.
+  The other pain was the pipes. I had no idea what I was doing with those, and spent a lot of time trying to figure
+them out but ended up just copying Cotterell's pipe4.cpp. 
+
+Worked with Kyle Turner and Steven Xu. 
+Three man group approved Mr. Cotterell himself.
