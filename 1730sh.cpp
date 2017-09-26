@@ -1,3 +1,4 @@
+#include <iostream>
 #include <cstdlib>
 #include <string>
 #include <cstdio>
@@ -13,6 +14,7 @@
 #include <getopt.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <stdlib.h>
 
 using std::string;
 using std::vector;
@@ -25,6 +27,7 @@ int laststatus = 0;
 //vectors
 vector< vector<string> >jobslist;
 vector<vector<int> > pidsofbacks;//holcs pids of background process. first int is the process leader 
+vector<string> environexp = {};
 
 int parse(string input);//cuts up the input and puts them in to a vector
 int eval(vector<string> clean);//takes the cleaned vector and evaluates the args
@@ -56,7 +59,10 @@ void my_handler(int signo) {
 } // my_handler
   
 
-int main(int argc, char* argv[]){
+int main(int argc, char* argv[], const char * envp[]){
+  //populate vector exports
+  
+    
   //  pid = getpid();
 
   signal(SIGINT,  my_handler);//ignore C-c
@@ -283,8 +289,14 @@ int runprog(vector<string> io, vector< vector<string> > pargs){
       if((pid = fork()) < 0){
 	fprintf(stderr, "FORK ERROR\n");
       }
-      else if(pid == 0){//first process
-	
+      else if(pid == 0){//child
+
+
+	for(unsigned int e = 0; e < environexp.size(); e++){//putting envvariables into child
+	  if(putenv((char *) (environexp.at(e).c_str())) != 0)
+	    fprintf(stderr, "putenv(): %s", strerror(errno));
+	}
+
 	if(bg){
 	  if(i == 0){
 	    leadpid = getpid();
@@ -475,6 +487,7 @@ int getbgpid(int bpid){
   return 0;
 }//getbgpid
 
+//status not updating properly
 int updatestatus(int status, int tpid, vector<string> temppros, bool bg){
   string statstr;
 
@@ -489,7 +502,7 @@ int updatestatus(int status, int tpid, vector<string> temppros, bool bg){
       printf("Process %d terminated with signal = %d\n", tpid, (int)WTERMSIG(status));
     if(WCOREDUMP(status) && !bg)
       printf("(core dumped)\n");
-    statstr = "Exited (" + (string)strsignal((int)WTERMSIG(status)) + ")";
+    statstr = "Signaled (" + (string)strsignal((int)WTERMSIG(status)) + ")";
   }
   if(WIFSTOPPED(status)){
     if(!bg)
@@ -501,7 +514,6 @@ int updatestatus(int status, int tpid, vector<string> temppros, bool bg){
       printf("Process %d has been continued\n", tpid);
     statstr = "Continued";
   }
-
 
   temppros.erase(temppros.begin() + 1);//erase current stauts
   temppros.insert(temppros.begin() + 1, statstr);//add new status
@@ -594,7 +606,7 @@ char *convert(const std::string & s){
 
 int isbuiltin(string prog){
   string listbuilts[8] = {"exit", "cd", "help", "bg",
-			  "export", "fg", "jobs", "kill"};
+			  "export", "fg", "jobs"};
 
   for(int i = 0; i < 8; i++){
     if(prog.compare(listbuilts[i]) == 0){
@@ -616,13 +628,16 @@ int runbuilt(int ind, vector<string> prog){
   case 3://bg
     return bg(prog);
   case 4://xport
+    //should not change variables until
+    //child process
+    //so call xport after fork not here.
     return xport(prog);
   case 5://fg
     return fg(prog);
   case 6://jobs
     return jobs(jobslist);
-  case 7:
-    return kill(prog);
+    //case 7:
+    //return kill(prog);
   default:
     return -1;
   }
@@ -711,10 +726,10 @@ int help(vector<string> args){
     case 6://jobs
       printf("$ jobs - List current jobs.\n\n");
       break;
-    case 7://kill
-      printf("$ kill [-s SIGNAL] PID - The kill utility sends the specied signal\n"
-	     " to the specied process or process group PID (seekill(2))\n\n");
-      break;
+      //case 7://kill
+      //printf("$ kill [-s SIGNAL] PID - The kill utility sends the specied signal\n"
+      //" to the specied process or process group PID (seekill(2))\n\n");
+      //break;
     }//switch
 
 
@@ -725,26 +740,41 @@ int help(vector<string> args){
   
 
 int bg(vector<string> args){//background
-  //wrong
+  // bg = 1;
   if(kill(stoi(args[1]), SIGCONT) == -1){
     return -1;
   }
+  setpgid(stoi(args[1]), stoi(args[1]));
   jobupdate(args[1], "Running");
-  
   return 0;
-  
 }
 
 int xport(vector<string> args){
-
-
-  return -1;
+  environexp.push_back(args[1]);
+  return 0;
 }
 
+
 int fg(vector<string> args){
-
-
-  return -1;
+  if(kill(stoi(args[1]), SIGCONT) == -1){
+    return -1;
+  }
+  setpgid(stoi(args[1]), getpid());
+  jobupdate(args[1], "Running");
+  int status;
+  int index;
+  for(unsigned int i = 0; i < jobslist.size(); i++){
+    if(jobslist.at(i).at(0).compare(args[1]) == 0){
+      index = i;
+      break;
+    }
+  }
+  vector<string> temp = {args[1], "Running", jobslist.at(index).at(2)};
+  if(waitpid(stoi(args[1]), &status, WUNTRACED) == -1) {
+    fprintf(stderr, "waitpid(): %s", strerror(errno));
+  } 
+  updatestatus(status, stoi(args[1]), temp, 0);
+  return 0;
 }
 /*
   jobs
@@ -753,54 +783,11 @@ int fg(vector<string> args){
   --> prints our jobs
  */
 int jobs(vector< vector<string> > jobslist){
+  printf("%-6s %-30s %s\n", "JID", "STATUS", "COMMAND");
   //format print
   for(unsigned int i = 0; i < jobslist.size(); i++){
-    printf("%-4s %-16s %s\n", jobslist.at(i).at(0).c_str(), jobslist.at(i).at(1).c_str(), jobslist.at(i).at(2).c_str());
+    printf("%-6s %-30s %s\n", jobslist.at(i).at(0).c_str(), jobslist.at(i).at(1).c_str(), jobslist.at(i).at(2).c_str());
   }
-  return 0;
-}
-
-int kill(vector<string> pargs){
-
-  vector<char*> args;
-  std::transform(pargs.begin(), pargs.end(), std::back_inserter(args), convert);
-  args.push_back((char*)0);
-
-  int c, flag, signal, loc;
-  string csignal;
-
-  while((c = getopt(args.size(), &args[0], "s:")) != -1){//our problem lies here. Will iterate size -1 times and breaks
-    switch(c){
-    case 's':
-      flag = 1;
-      loc = 2;
-      csignal = (string)optarg;
-      break;
-    case 'c':
-      printf("helo\n");
-      break;
-    }
-  }
- 
-
-  if((signal = strtosig(csignal)) == -1){
-    for (unsigned int i = 0; i < args.size(); i++ )
-      delete [] args[i];
-    return -1;
-  }
-  if(!flag){
-    signal = 15; //SIGTERM signal
-    loc = 1;
-  }
-  if(kill(stoi(pargs[loc]), signal) == -1){
-    for (unsigned int i = 0; i < args.size(); i++ )
-      delete [] args[i];
-    return -1;
-  }
-
-  for (unsigned int i = 0; i < args.size(); i++ )
-    delete [] args[i];
-
   return 0;
 }
 
