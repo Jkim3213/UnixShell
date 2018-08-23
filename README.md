@@ -1,5 +1,3 @@
-#Jacob Kim
-
 ## Instructions
 
 To clean my code (i.e., remove any compiled files), type:
